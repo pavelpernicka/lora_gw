@@ -1,0 +1,405 @@
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <link rel="stylesheet" href="chart.css">
+    <title>Data</title>
+    <style>
+      body{
+        margin: 0px;
+        font-family: sans-serif;
+      }
+      .header{
+        background-color: #009688;
+        padding: 10px;
+        color: #ffffff;
+        font-weight: normal;
+	margin-bottom: 1px;
+	font-size: 22px;
+      }
+      .uplot{
+        display: inline-block;
+      }
+      .graf{
+	border-width: 2px;
+	border: #4CAF50;
+	border-width: 2px;
+	border-radius: 10px;
+	border-style: solid;
+	background-color: #4caf5003;
+	margin: 10px;
+      }
+      .load{
+	float: right;
+	height: 26px;
+      }
+    </style>
+  </head>
+  <body>
+    <script src="chart.js"></script>
+    <h2 class="header">Zobrazení dat za poslední dva dny <button onclick="loaddata()" class="load">Načíst data</button></h2>
+    <script>
+let fmt = uPlot.fmtDate("{YYYY}-{MM}-{DD} {HH}:{mm}:{ss}");
+let tzDate = ts => uPlot.tzDate(new Date(ts * 1e3));
+
+function wheelZoomPlugin(opts) {
+	let factor = opts.factor || 0.75;
+	let xMin, xMax, yMin, yMax, xRange, yRange;
+	function clamp(nRange, nMin, nMax, fRange, fMin, fMax) {
+		if (nRange > fRange) {
+			nMin = fMin;
+			nMax = fMax;
+		}
+		else if (nMin < fMin) {
+			nMin = fMin;
+			nMax = fMin + nRange;
+		}
+		else if (nMax > fMax) {
+			nMax = fMax;
+			nMin = fMax - nRange;
+		}
+		return [nMin, nMax];
+	}
+	return {
+		hooks: {
+			ready: u => {
+				xMin = u.scales.x.min;
+				xMax = u.scales.x.max;
+				yMin = u.scales.y.min;
+				yMax = u.scales.y.max;
+
+				xRange = xMax - xMin;
+				yRange = yMax - yMin;
+
+				let plot = u.root.querySelector(".u-over");
+				let rect = plot.getBoundingClientRect();
+
+				plot.addEventListener("mousedown", e => {
+					if (e.button == 1) {
+						e.preventDefault();
+						let left0 = e.clientX;
+						let scXMin0 = u.scales.x.min;
+						let scXMax0 = u.scales.x.max;
+						let xUnitsPerPx = u.posToVal(1, 'x') - u.posToVal(0, 'x');
+
+						function onmove(e) {
+							e.preventDefault();
+							let left1 = e.clientX;
+							let dx = xUnitsPerPx * (left1 - left0);
+							u.setScale('x', {
+								min: scXMin0 - dx,
+								max: scXMax0 - dx,
+							});
+						}
+
+						function onup(e) {
+							document.removeEventListener("mousemove", onmove);
+							document.removeEventListener("mouseup", onup);
+						}
+						document.addEventListener("mousemove", onmove);
+						document.addEventListener("mouseup", onup);
+					}
+				});
+
+				plot.addEventListener("wheel", e => {
+					e.preventDefault();
+					let {left, top} = u.cursor;
+					let leftPct = left/rect.width;
+					let btmPct = 1 - top/rect.height;
+					let xVal = u.posToVal(left, "x");
+					let yVal = u.posToVal(top, "y");
+					let oxRange = u.scales.x.max - u.scales.x.min;
+					let oyRange = u.scales.y.max - u.scales.y.min;
+
+					let nxRange = e.deltaY < 0 ? oxRange * factor : oxRange / factor;
+					let nxMin = xVal - leftPct * nxRange;
+					let nxMax = nxMin + nxRange;
+					[nxMin, nxMax] = clamp(nxRange, nxMin, nxMax, xRange, xMin, xMax);
+
+					let nyRange = e.deltaY < 0 ? oyRange * factor : oyRange / factor;
+					let nyMin = yVal - btmPct * nyRange;
+					let nyMax = nyMin + nyRange;
+					[nyMin, nyMax] = clamp(nyRange, nyMin, nyMax, yRange, yMin, yMax);
+					u.batch(() => {
+						u.setScale("x", {
+							min: nxMin,
+							max: nxMax,
+						});
+
+						u.setScale("y", {
+							min: nyMin,
+							max: nyMax,
+						});
+					});
+				});
+			}
+		}
+	};
+}
+
+function makeChart(data, dseries, dtitle) {
+	console.time('chart');
+	let opts = {
+		title: dtitle,
+		width: 600,
+		height: 400,
+		class: "graf",
+		cursor: {
+			dataIdx: (self, seriesIdx, hoveredIdx) => {
+				let seriesData = self.data[seriesIdx];
+				if (seriesData[hoveredIdx] == null) {
+					let nonNullLft = hoveredIdx,
+						nonNullRgt = hoveredIdx,
+						i;
+
+					i = hoveredIdx;
+					while (nonNullLft == hoveredIdx && i-- > 0)
+						if (seriesData[i] != null)
+							nonNullLft = i;
+
+					i = hoveredIdx;
+					while (nonNullRgt == hoveredIdx && i++ < seriesData.length)
+						if (seriesData[i] != null)
+							nonNullRgt = i;
+
+					return nonNullRgt - hoveredIdx > hoveredIdx - nonNullLft ? nonNullLft : nonNullRgt;
+				}
+
+				return hoveredIdx;
+			}
+		},
+		tzDate,
+		plugins: [
+			wheelZoomPlugin({factor: 0.75})
+		],
+		scales: {
+			x: {time: true},
+		},
+		series: dseries
+	};
+	let u = new uPlot(opts, data, document.body);
+}
+
+var dates = []
+var temperature = []
+var temperature_min = []
+var temperature_max = []
+var humidity = []
+var pressure = []
+var irradiation = []
+var irradiation_max = []
+var rain = []
+var wind = []
+var gust = []
+var direction = []
+var direction_max = []
+
+function createchart(data){
+    for (const d in data) {
+      if(!dates.includes(data[d].time)){
+      dates.push(data[d].time);
+      temperature.push(data[d].temperature);
+      temperature_min.push(data[d].temperature_min);
+      temperature_max.push(data[d].temperature_max);
+      humidity.push(data[d].humidity);
+      pressure.push(data[d].pressure);
+      irradiation.push(data[d].irradiation);
+      irradiation_max.push(data[d].irradiation_max);
+      rain.push(data[d].rain);
+      wind.push(data[d].wind);
+      gust.push(data[d].gust);
+      direction.push(data[d].direction);
+      direction_max.push(data[d].direction_max);
+    }}
+
+	var adata = [
+		dates,
+		temperature,
+		temperature_min,
+		temperature_max,
+	];
+	var aseries = [
+		{
+			label: "Datum",
+			value: "{DD}.{MM} {HH}:{mm}:{ss}"
+		},
+		{
+			label: "Teplota",
+			stroke: "red",
+			value: (u, v) => v == null ? "-" : v.toFixed(1) + " °C",
+		},
+		{
+			label: "Min",
+			stroke: "blue",
+			value: (u, v) => v == null ? "-" : v.toFixed(1) + " °C",
+		},
+		{
+			label: "Max",
+			stroke: "green",
+			value: (u, v) => v == null ? "-" : v.toFixed(1) + " °C",
+		}
+	];
+	makeChart(adata, aseries, "Teplota");
+
+
+
+	var adata = [
+		dates,
+		humidity
+	];
+	var aseries = [
+		{
+			label: "Datum",
+			value: "{DD}.{MM} {HH}:{mm}:{ss}"
+		},
+		{
+			label: "Vlhkost",
+			stroke: "green",
+			value: (u, v) => v == null ? "-" : v.toFixed(1) + " %",
+		}
+	];
+	makeChart(adata, aseries, "Vlhkost");
+
+
+
+	var adata = [
+		dates,
+		pressure
+	];
+	var aseries = [
+		{
+			label: "Datum",
+			value: "{DD}.{MM} {HH}:{mm}:{ss}"
+		},
+		{
+			label: "Tlak",
+			stroke: "blue",
+			value: (u, v) => v == null ? "-" : v.toFixed(1) + " Pa",
+		}
+	];
+	makeChart(adata, aseries, "Tlak");
+
+
+	var adata = [
+		dates,
+		irradiation,
+		irradiation_max
+	];
+	var aseries = [
+		{
+			label: "Datum",
+			value: "{DD}.{MM} {HH}:{mm}:{ss}"
+		},
+		{
+			label: "Záření",
+			stroke: "blue",
+			value: (u, v) => v == null ? "-" : v.toFixed(1) + " W/m^2",
+		},
+		{
+			label: "Max",
+			stroke: "red",
+			dash: [10, 10],
+			value: (u, v) => v == null ? "-" : v.toFixed(1) + " W/m^2",
+		}
+	];
+	makeChart(adata, aseries, "Sluneční záření");
+
+
+
+	var adata = [
+		dates,
+		rain
+	];
+	var aseries = [
+		{
+			label: "Datum",
+			value: "{DD}.{MM} {HH}:{mm}:{ss}"
+		},
+		{
+			label: "Srážky",
+			stroke: "blue",
+			drawStyle: 1,
+			value: (u, v) => v == null ? "-" : v.toFixed(1) + " mm",
+		}
+	];
+	makeChart(adata, aseries, "Srážky");
+
+	var adata = [
+		dates,
+		wind,
+		gust
+	];
+	var aseries = [
+		{
+			label: "Datum",
+			value: "{DD}.{MM} {HH}:{mm}:{ss}"
+		},
+		{
+			label: "Průměr",
+			stroke: "blue",
+			value: (u, v) => v == null ? "-" : v.toFixed(1) + " m/s",
+		},
+		{
+			label: "Náraz",
+			stroke: "red",
+			dash: [10, 10],
+			value: (u, v) => v == null ? "-" : v.toFixed(1) + " m/s",
+		}
+	];
+	makeChart(adata, aseries, "Rychlost větru");
+
+	var adata = [
+		dates,
+		direction,
+		direction_max
+	];
+	var aseries = [
+		{
+			label: "Datum",
+			value: "{DD}.{MM} {HH}:{mm}:{ss}"
+		},
+		{
+			label: "Průměr",
+			stroke: "blue",
+			value: (u, v) => v == null ? "-" : v.toFixed(1) + " °"
+		},
+		{
+			label: "Max",
+			stroke: "red",
+			dash: [10, 10],
+			value: (u, v) => v == null ? "-" : v.toFixed(1) + " °",
+		}
+	];
+	makeChart(adata, aseries, "Směr větru");
+
+
+}
+var olddata = ""
+function loaddata(){
+	const xhr = new XMLHttpRequest();
+	xhr.open('GET', 'cgi-bin/data_json');
+	xhr.responseType = 'json';
+	xhr.onload = function(e) {
+		if (this.status == 200) {
+			if(JSON.stringify(olddata)!=JSON.stringify(this.response)){
+				var paras = document.getElementsByClassName('graf');
+				while(paras[0]) {
+					paras[0].parentNode.removeChild(paras[0]);
+				}
+				createchart(this.response);
+				olddata=this.response;
+			}
+		}else{
+			alert("Nepodařilo se načíst data");
+		}
+	};
+	xhr.send();
+}
+
+loaddata();
+setInterval(function() {
+    loaddata();
+}, 30 * 1000);
+</script>
+  </body>
+</html>

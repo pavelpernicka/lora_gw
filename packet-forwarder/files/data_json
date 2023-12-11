@@ -1,0 +1,4 @@
+#!/bin/sh
+echo "Content-type: text/json"
+echo
+python /etc/lora/data_json.py
